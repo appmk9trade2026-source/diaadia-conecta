@@ -133,6 +133,7 @@ create table public.visits (
   gps_accuracy_meters numeric(10,2),
   photo_path text,
   visited_at timestamptz not null default now(),
+  device_captured_at timestamptz,
   outcome public.visit_outcome not null,
   previous_visit_id uuid references public.visits(id) on delete set null,
   distance_from_previous_meters numeric(10,2),
@@ -185,7 +186,7 @@ create table public.vouchers (
   code text not null,
   checksum_digit text,
   status public.voucher_status not null default 'disponivel',
-  reserved_by uuid references public.profiles(id) on delete set null,
+  reserved_by_user_id uuid references public.profiles(id) on delete set null,
   reserved_for_lead_id uuid references public.leads(id) on delete set null,
   reserved_at timestamptz,
   delivered_at timestamptz,
@@ -194,9 +195,9 @@ create table public.vouchers (
   constraint vouchers_code_not_blank check (length(btrim(code)) > 0),
   constraint vouchers_code_unique_per_tenant unique (tenant_id, code),
   constraint vouchers_reservation_consistent check (
-    (status = 'disponivel' and reserved_by is null and reserved_for_lead_id is null and reserved_at is null and delivered_at is null)
-    or (status = 'reservado' and reserved_by is not null and reserved_for_lead_id is not null and reserved_at is not null and delivered_at is null)
-    or (status = 'entregue' and reserved_by is not null and reserved_for_lead_id is not null and reserved_at is not null and delivered_at is not null)
+    (status = 'disponivel' and reserved_by_user_id is null and reserved_for_lead_id is null and reserved_at is null and delivered_at is null)
+    or (status = 'reservado' and reserved_by_user_id is not null and reserved_for_lead_id is not null and reserved_at is not null and delivered_at is null)
+    or (status = 'entregue' and reserved_by_user_id is not null and reserved_for_lead_id is not null and reserved_at is not null and delivered_at is not null)
     or (status = 'cancelado')
   )
 );
@@ -246,10 +247,12 @@ create table public.audit_events (
       'visit_reviewed',
       'lead_created',
       'voucher_reserved',
+      'voucher_delivery_created',
       'voucher_ocr_validated',
       'voucher_ocr_rejected',
       'voucher_ocr_manual_review',
-      'voucher_delivery_finalized'
+      'voucher_delivery_finalized',
+      'tenant_admin_provisioned'
     )
   ),
   constraint audit_events_entity_type_not_blank check (length(btrim(entity_type)) > 0)
@@ -271,6 +274,9 @@ create trigger set_profiles_updated_at before update on public.profiles for each
 create trigger set_tenant_memberships_updated_at before update on public.tenant_memberships for each row execute function public.set_updated_at();
 create trigger set_journeys_updated_at before update on public.journeys for each row execute function public.set_updated_at();
 create trigger set_field_routes_updated_at before update on public.field_routes for each row execute function public.set_updated_at();
+create trigger validate_field_route_consultant_membership
+  before insert or update of tenant_id, consultant_id on public.field_routes
+  for each row execute function public.assert_field_route_consultant_membership();
 create trigger set_visit_settings_updated_at before update on public.visit_settings for each row execute function public.set_updated_at();
 create trigger set_visits_updated_at before update on public.visits for each row execute function public.set_updated_at();
 create trigger set_leads_updated_at before update on public.leads for each row execute function public.set_updated_at();
@@ -321,6 +327,31 @@ as $$
   );
 $$;
 
+create or replace function public.user_has_tenant_role(
+  p_user_id uuid,
+  p_tenant_id uuid,
+  p_roles public.membership_role[]
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.tenant_memberships tm
+    join public.tenants t on t.id = tm.tenant_id
+    join public.profiles p on p.id = tm.user_id
+    where tm.tenant_id = p_tenant_id
+      and tm.user_id = p_user_id
+      and tm.role = any(p_roles)
+      and tm.active
+      and t.active
+      and p.active
+  );
+$$;
+
 create or replace function public.assert_current_user_tenant_role(
   p_tenant_id uuid,
   p_roles public.membership_role[]
@@ -356,6 +387,80 @@ begin
   end if;
 
   return v_role;
+end;
+$$;
+
+create or replace function public.storage_path_matches_actor(
+  p_path text,
+  p_tenant_id uuid,
+  p_user_id uuid
+)
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select coalesce(p_path, '') ~ (
+    '^'
+    || p_tenant_id::text
+    || '/'
+    || p_user_id::text
+    || '/'
+    || '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+    || '\.(jpg|jpeg|png|webp)$'
+  )
+  and position('..' in coalesce(p_path, '')) = 0
+  and position('//' in coalesce(p_path, '')) = 0;
+$$;
+
+create or replace function public.storage_path_tenant_id(p_path text)
+returns uuid
+language sql
+stable
+set search_path = public, storage, pg_temp
+as $$
+  select case
+    when coalesce((storage.foldername(p_path))[1], '') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    then ((storage.foldername(p_path))[1])::uuid
+    else null
+  end;
+$$;
+
+create or replace function public.storage_object_exists(
+  p_bucket_id text,
+  p_path text,
+  p_tenant_id uuid,
+  p_user_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, storage, pg_temp
+as $$
+  select public.storage_path_matches_actor(p_path, p_tenant_id, p_user_id)
+    and exists (
+      select 1
+      from storage.objects so
+      where so.bucket_id = p_bucket_id
+        and so.name = p_path
+        and so.owner = p_user_id
+    );
+$$;
+
+create or replace function public.assert_field_route_consultant_membership()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.consultant_id is not null
+     and not public.user_has_tenant_role(new.consultant_id, new.tenant_id, array['consultant']::public.membership_role[]) then
+    raise exception 'Field route consultant must be an active consultant in the same tenant' using errcode = '23514';
+  end if;
+
+  return new;
 end;
 $$;
 
@@ -397,6 +502,102 @@ begin
 end;
 $$;
 
+create or replace function public.update_my_profile(
+  p_name text default null,
+  p_phone text default null
+)
+returns public.profiles
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_profile public.profiles;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required' using errcode = '28000';
+  end if;
+
+  update public.profiles
+  set
+    name = coalesce(nullif(btrim(p_name), ''), name),
+    phone = nullif(btrim(coalesce(p_phone, '')), '')
+  where id = auth.uid()
+    and active
+  returning * into v_profile;
+
+  if v_profile.id is null then
+    raise exception 'Active profile not found' using errcode = 'P0002';
+  end if;
+
+  return v_profile;
+end;
+$$;
+
+create or replace function public.provision_tenant_admin(
+  p_tenant_name text,
+  p_tenant_slug text,
+  p_user_id uuid,
+  p_profile_name text,
+  p_profile_email text default null,
+  p_profile_phone text default null
+)
+returns table (
+  tenant public.tenants,
+  profile public.profiles,
+  membership public.tenant_memberships
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_tenant public.tenants;
+  v_profile public.profiles;
+  v_membership public.tenant_memberships;
+begin
+  if p_user_id is null or not exists (select 1 from auth.users u where u.id = p_user_id) then
+    raise exception 'Existing auth user is required' using errcode = '23503';
+  end if;
+
+  insert into public.tenants (name, slug)
+  values (p_tenant_name, p_tenant_slug)
+  on conflict (slug) do update
+  set name = excluded.name,
+      active = true
+  returning * into v_tenant;
+
+  insert into public.profiles (id, name, email, phone, active)
+  values (p_user_id, p_profile_name, p_profile_email, p_profile_phone, true)
+  on conflict (id) do update
+  set name = excluded.name,
+      email = coalesce(public.profiles.email, excluded.email),
+      phone = excluded.phone,
+      active = true
+  returning * into v_profile;
+
+  insert into public.tenant_memberships (tenant_id, user_id, role, active)
+  values (v_tenant.id, v_profile.id, 'admin', true)
+  on conflict (tenant_id, user_id, role) do update
+  set active = true
+  returning * into v_membership;
+
+  perform public.log_audit_event(
+    v_tenant.id,
+    'tenant_admin_provisioned',
+    'tenant',
+    v_tenant.id,
+    jsonb_build_object('admin_user_id', v_profile.id),
+    null
+  );
+
+  tenant := v_tenant;
+  profile := v_profile;
+  membership := v_membership;
+  return next;
+end;
+$$;
+
 create or replace function public.haversine_distance_meters(
   p_latitude_a numeric,
   p_longitude_a numeric,
@@ -424,8 +625,7 @@ create or replace function public.start_journey(
   p_tenant_id uuid,
   p_check_in_latitude numeric,
   p_check_in_longitude numeric,
-  p_check_in_accuracy_meters numeric default null,
-  p_check_in_at timestamptz default now()
+  p_check_in_accuracy_meters numeric default null
 )
 returns public.journeys
 language plpgsql
@@ -448,7 +648,7 @@ begin
   values (
     p_tenant_id,
     auth.uid(),
-    coalesce(p_check_in_at, now()),
+    clock_timestamp(),
     p_check_in_latitude,
     p_check_in_longitude,
     p_check_in_accuracy_meters
@@ -471,8 +671,7 @@ create or replace function public.finish_journey(
   p_journey_id uuid,
   p_check_out_latitude numeric,
   p_check_out_longitude numeric,
-  p_check_out_accuracy_meters numeric default null,
-  p_check_out_at timestamptz default now()
+  p_check_out_accuracy_meters numeric default null
 )
 returns public.journeys
 language plpgsql
@@ -498,7 +697,7 @@ begin
 
   update public.journeys
   set
-    check_out_at = coalesce(p_check_out_at, now()),
+    check_out_at = clock_timestamp(),
     check_out_latitude = p_check_out_latitude,
     check_out_longitude = p_check_out_longitude,
     check_out_accuracy_meters = p_check_out_accuracy_meters,
@@ -527,7 +726,7 @@ create or replace function public.record_visit(
   p_photo_path text,
   p_outcome public.visit_outcome,
   p_field_route_id uuid default null,
-  p_visited_at timestamptz default now()
+  p_device_captured_at timestamptz default null
 )
 returns public.visits
 language plpgsql
@@ -543,6 +742,7 @@ declare
   v_signals jsonb := '{}'::jsonb;
   v_score numeric(5,2) := 0;
   v_suspicious boolean := false;
+  v_visited_at timestamptz := clock_timestamp();
   v_visit public.visits;
 begin
   perform public.assert_current_user_tenant_role(p_tenant_id, array['consultant']::public.membership_role[]);
@@ -595,7 +795,7 @@ begin
 
   if v_previous.id is not null then
     v_distance := round(public.haversine_distance_meters(v_previous.latitude, v_previous.longitude, p_latitude, p_longitude), 2);
-    v_seconds := greatest(0, extract(epoch from (coalesce(p_visited_at, now()) - v_previous.visited_at))::integer);
+    v_seconds := greatest(0, extract(epoch from (v_visited_at - v_previous.visited_at))::integer);
 
     if v_distance < v_settings.min_distance_signal_meters then
       v_score := v_score + 25;
@@ -613,9 +813,13 @@ begin
     v_signals := v_signals || jsonb_build_object('low_gps_accuracy', true);
   end if;
 
-  if v_settings.photo_required and nullif(btrim(coalesce(p_photo_path, '')), '') is null then
+  if v_settings.photo_required
+     and not public.storage_object_exists('visit-photos', p_photo_path, p_tenant_id, auth.uid()) then
+    raise exception 'Visit photo evidence is required and must exist in storage' using errcode = '23514';
+  elsif p_photo_path is not null
+     and not public.storage_object_exists('visit-photos', p_photo_path, p_tenant_id, auth.uid()) then
     v_score := v_score + 30;
-    v_signals := v_signals || jsonb_build_object('missing_photo', true);
+    v_signals := v_signals || jsonb_build_object('invalid_photo_path', true);
   end if;
 
   v_score := least(v_score, 100);
@@ -632,6 +836,7 @@ begin
     gps_accuracy_meters,
     photo_path,
     visited_at,
+    device_captured_at,
     outcome,
     previous_visit_id,
     distance_from_previous_meters,
@@ -650,7 +855,8 @@ begin
     p_longitude,
     p_gps_accuracy_meters,
     nullif(btrim(coalesce(p_photo_path, '')), ''),
-    coalesce(p_visited_at, now()),
+    v_visited_at,
+    p_device_captured_at,
     p_outcome,
     v_previous.id,
     v_distance,
@@ -800,7 +1006,6 @@ end;
 $$;
 
 create or replace function public.reserve_voucher(
-  p_tenant_id uuid,
   p_lead_id uuid,
   p_voucher_id uuid default null
 )
@@ -813,20 +1018,19 @@ declare
   v_lead public.leads;
   v_voucher public.vouchers;
 begin
-  perform public.assert_current_user_tenant_role(p_tenant_id, array['consultant', 'supervisor', 'admin']::public.membership_role[]);
-
   select *
     into v_lead
   from public.leads
   where id = p_lead_id
-    and tenant_id = p_tenant_id
   for update;
 
   if v_lead.id is null then
-    raise exception 'Lead not found for tenant' using errcode = 'P0002';
+    raise exception 'Lead not found' using errcode = 'P0002';
   end if;
 
-  if not public.current_user_has_tenant_role(p_tenant_id, array['admin', 'supervisor']::public.membership_role[])
+  perform public.assert_current_user_tenant_role(v_lead.tenant_id, array['consultant', 'supervisor', 'admin']::public.membership_role[]);
+
+  if not public.current_user_has_tenant_role(v_lead.tenant_id, array['admin', 'supervisor']::public.membership_role[])
      and v_lead.consultant_id <> auth.uid() then
     raise exception 'Consultant can reserve vouchers only for own leads' using errcode = '42501';
   end if;
@@ -834,7 +1038,7 @@ begin
   select *
     into v_voucher
   from public.vouchers
-  where tenant_id = p_tenant_id
+  where tenant_id = v_lead.tenant_id
     and status = 'disponivel'
     and (p_voucher_id is null or id = p_voucher_id)
   order by created_at, id
@@ -848,9 +1052,9 @@ begin
   update public.vouchers
   set
     status = 'reservado',
-    reserved_by = auth.uid(),
+    reserved_by_user_id = auth.uid(),
     reserved_for_lead_id = v_lead.id,
-    reserved_at = now()
+    reserved_at = clock_timestamp()
   where id = v_voucher.id
   returning * into v_voucher;
 
@@ -859,14 +1063,109 @@ begin
   where id = v_lead.id;
 
   perform public.log_audit_event(
-    p_tenant_id,
+    v_lead.tenant_id,
     'voucher_reserved',
     'voucher',
     v_voucher.id,
-    jsonb_build_object('lead_id', v_lead.id, 'reserved_by', auth.uid())
+    jsonb_build_object('lead_id', v_lead.id, 'reserved_by_user_id', auth.uid())
   );
 
   return v_voucher;
+end;
+$$;
+
+create or replace function public.create_voucher_delivery(
+  p_voucher_id uuid,
+  p_lead_id uuid,
+  p_voucher_photo_path text
+)
+returns public.voucher_deliveries
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor_role public.membership_role;
+  v_lead public.leads;
+  v_voucher public.vouchers;
+  v_delivery public.voucher_deliveries;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required' using errcode = '28000';
+  end if;
+
+  select *
+    into v_lead
+  from public.leads
+  where id = p_lead_id
+  for update;
+
+  if v_lead.id is null then
+    raise exception 'Lead not found' using errcode = 'P0002';
+  end if;
+
+  v_actor_role := public.assert_current_user_tenant_role(
+    v_lead.tenant_id,
+    array['consultant', 'supervisor', 'admin']::public.membership_role[]
+  );
+
+  if v_actor_role = 'consultant' and v_lead.consultant_id <> auth.uid() then
+    raise exception 'Consultant can create voucher delivery only for own lead' using errcode = '42501';
+  end if;
+
+  select *
+    into v_voucher
+  from public.vouchers
+  where id = p_voucher_id
+  for update;
+
+  if v_voucher.id is null then
+    raise exception 'Voucher not found' using errcode = 'P0002';
+  end if;
+
+  if v_voucher.tenant_id <> v_lead.tenant_id
+     or v_voucher.status <> 'reservado'
+     or v_voucher.reserved_for_lead_id <> v_lead.id then
+    raise exception 'Voucher reservation is not valid for this lead and tenant' using errcode = '23514';
+  end if;
+
+  if not public.storage_object_exists('voucher-photos', p_voucher_photo_path, v_lead.tenant_id, v_lead.consultant_id) then
+    raise exception 'Voucher photo evidence must exist in storage for the lead consultant and tenant' using errcode = '23514';
+  end if;
+
+  insert into public.voucher_deliveries (
+    tenant_id,
+    voucher_id,
+    lead_id,
+    consultant_id,
+    voucher_photo_path,
+    delivery_status,
+    ocr_status
+  )
+  values (
+    v_lead.tenant_id,
+    v_voucher.id,
+    v_lead.id,
+    v_lead.consultant_id,
+    p_voucher_photo_path,
+    'pendente',
+    'pendente'
+  )
+  returning * into v_delivery;
+
+  perform public.log_audit_event(
+    v_delivery.tenant_id,
+    'voucher_delivery_created',
+    'voucher_delivery',
+    v_delivery.id,
+    jsonb_build_object(
+      'voucher_id', v_voucher.id,
+      'lead_id', v_lead.id,
+      'consultant_id', v_lead.consultant_id
+    )
+  );
+
+  return v_delivery;
 end;
 $$;
 
@@ -880,6 +1179,7 @@ as $$
   set ocr_status = 'processando'
   where id = p_delivery_id
     and ocr_status = 'pendente'
+    and delivery_status = 'pendente'
   returning *;
 $$;
 
@@ -891,8 +1191,7 @@ create or replace function public.register_voucher_ocr_result(
   p_ocr_model text default null,
   p_ocr_error text default null,
   p_ocr_error_message text default null,
-  p_ocr_raw_response jsonb default null,
-  p_ocr_processed_at timestamptz default now()
+  p_ocr_raw_response jsonb default null
 )
 returns public.voucher_deliveries
 language plpgsql
@@ -938,9 +1237,10 @@ begin
     ocr_error = p_ocr_error,
     ocr_error_message = p_ocr_error_message,
     ocr_raw_response = p_ocr_raw_response,
-    ocr_processed_at = coalesce(p_ocr_processed_at, now())
+    ocr_processed_at = clock_timestamp()
   where id = p_delivery_id
-    and ocr_status in ('pendente', 'processando', 'revisao_manual')
+    and ocr_status = 'processando'
+    and delivery_status = 'pendente'
   returning * into v_delivery;
 
   if v_delivery.id is null then
@@ -1020,6 +1320,8 @@ begin
   if v_voucher.tenant_id <> v_delivery.tenant_id
      or v_lead.tenant_id <> v_delivery.tenant_id
      or v_voucher.reserved_for_lead_id <> v_lead.id
+     or v_delivery.lead_id <> v_lead.id
+     or v_delivery.consultant_id <> v_lead.consultant_id
      or v_voucher.status <> 'reservado' then
     raise exception 'Cross-tenant or reservation consistency violation' using errcode = '23514';
   end if;
@@ -1033,7 +1335,7 @@ begin
   set
     delivery_status = 'finalizada',
     finalized_by = auth.uid(),
-    finalized_at = now()
+    finalized_at = clock_timestamp()
   where id = v_delivery.id
   returning * into v_delivery;
 
@@ -1117,11 +1419,6 @@ create policy profiles_select_self_or_same_tenant_admins on public.profiles
     )
   );
 
-create policy profiles_update_self on public.profiles
-  for update to authenticated
-  using (id = auth.uid())
-  with check (id = auth.uid());
-
 create policy tenant_memberships_select_members on public.tenant_memberships
   for select to authenticated
   using (public.current_user_is_tenant_member(tenant_id));
@@ -1129,7 +1426,7 @@ create policy tenant_memberships_select_members on public.tenant_memberships
 create policy journeys_select_by_role on public.journeys
   for select to authenticated
   using (
-    consultant_id = auth.uid()
+    (consultant_id = auth.uid() and public.current_user_has_tenant_role(tenant_id, array['consultant']::public.membership_role[]))
     or public.current_user_has_tenant_role(tenant_id, array['admin', 'supervisor']::public.membership_role[])
   );
 
@@ -1137,7 +1434,7 @@ create policy field_routes_select_by_role on public.field_routes
   for select to authenticated
   using (
     public.current_user_has_tenant_role(tenant_id, array['admin', 'supervisor']::public.membership_role[])
-    or consultant_id = auth.uid()
+    or (consultant_id = auth.uid() and public.current_user_has_tenant_role(tenant_id, array['consultant']::public.membership_role[]))
   );
 
 create policy field_routes_manage_admin_supervisor on public.field_routes
@@ -1157,25 +1454,41 @@ create policy visit_settings_manage_admins on public.visit_settings
 create policy visits_select_by_role on public.visits
   for select to authenticated
   using (
-    consultant_id = auth.uid()
+    (consultant_id = auth.uid() and public.current_user_has_tenant_role(tenant_id, array['consultant']::public.membership_role[]))
     or public.current_user_has_tenant_role(tenant_id, array['admin', 'supervisor']::public.membership_role[])
   );
 
 create policy leads_select_by_role on public.leads
   for select to authenticated
   using (
-    consultant_id = auth.uid()
+    (consultant_id = auth.uid() and public.current_user_has_tenant_role(tenant_id, array['consultant']::public.membership_role[]))
     or public.current_user_has_tenant_role(tenant_id, array['admin', 'supervisor']::public.membership_role[])
   );
 
-create policy vouchers_select_members on public.vouchers
+create policy vouchers_select_by_role on public.vouchers
   for select to authenticated
-  using (public.current_user_is_tenant_member(tenant_id));
+  using (
+    public.current_user_has_tenant_role(tenant_id, array['admin', 'supervisor']::public.membership_role[])
+    or exists (
+      select 1
+      from public.leads l
+      where l.id = vouchers.reserved_for_lead_id
+        and l.consultant_id = auth.uid()
+        and public.current_user_has_tenant_role(l.tenant_id, array['consultant']::public.membership_role[])
+    )
+    or exists (
+      select 1
+      from public.voucher_deliveries vd
+      where vd.voucher_id = vouchers.id
+        and vd.consultant_id = auth.uid()
+        and public.current_user_has_tenant_role(vd.tenant_id, array['consultant']::public.membership_role[])
+    )
+  );
 
 create policy voucher_deliveries_select_by_role on public.voucher_deliveries
   for select to authenticated
   using (
-    consultant_id = auth.uid()
+    (consultant_id = auth.uid() and public.current_user_has_tenant_role(tenant_id, array['consultant']::public.membership_role[]))
     or public.current_user_has_tenant_role(tenant_id, array['admin', 'supervisor']::public.membership_role[])
   );
 
@@ -1267,16 +1580,19 @@ create policy visit_photos_insert_own_tenant on storage.objects
   for insert to authenticated
   with check (
     bucket_id = 'visit-photos'
-    and public.current_user_has_tenant_role(((storage.foldername(name))[1])::uuid, array['consultant']::public.membership_role[])
+    and public.storage_path_tenant_id(name) is not null
+    and public.storage_path_matches_actor(name, public.storage_path_tenant_id(name), auth.uid())
+    and public.current_user_has_tenant_role(public.storage_path_tenant_id(name), array['consultant']::public.membership_role[])
   );
 
 create policy visit_photos_read_tenant on storage.objects
   for select to authenticated
   using (
     bucket_id = 'visit-photos'
+    and public.storage_path_tenant_id(name) is not null
     and (
-      public.current_user_has_tenant_role(((storage.foldername(name))[1])::uuid, array['admin', 'supervisor']::public.membership_role[])
-      or owner = auth.uid()
+      public.current_user_has_tenant_role(public.storage_path_tenant_id(name), array['admin', 'supervisor']::public.membership_role[])
+      or (owner = auth.uid() and public.current_user_has_tenant_role(public.storage_path_tenant_id(name), array['consultant']::public.membership_role[]))
     )
   );
 
@@ -1284,43 +1600,58 @@ create policy voucher_photos_insert_own_tenant on storage.objects
   for insert to authenticated
   with check (
     bucket_id = 'voucher-photos'
-    and public.current_user_has_tenant_role(((storage.foldername(name))[1])::uuid, array['consultant']::public.membership_role[])
+    and public.storage_path_tenant_id(name) is not null
+    and public.storage_path_matches_actor(name, public.storage_path_tenant_id(name), auth.uid())
+    and public.current_user_has_tenant_role(public.storage_path_tenant_id(name), array['consultant']::public.membership_role[])
   );
 
 create policy voucher_photos_read_tenant on storage.objects
   for select to authenticated
   using (
     bucket_id = 'voucher-photos'
+    and public.storage_path_tenant_id(name) is not null
     and (
-      public.current_user_has_tenant_role(((storage.foldername(name))[1])::uuid, array['admin', 'supervisor']::public.membership_role[])
-      or owner = auth.uid()
+      public.current_user_has_tenant_role(public.storage_path_tenant_id(name), array['admin', 'supervisor']::public.membership_role[])
+      or (owner = auth.uid() and public.current_user_has_tenant_role(public.storage_path_tenant_id(name), array['consultant']::public.membership_role[]))
     )
   );
 
 revoke execute on function public.current_user_is_tenant_member(uuid) from public;
 revoke execute on function public.current_user_has_tenant_role(uuid, public.membership_role[]) from public;
+revoke execute on function public.user_has_tenant_role(uuid, uuid, public.membership_role[]) from public;
 revoke execute on function public.assert_current_user_tenant_role(uuid, public.membership_role[]) from public;
+revoke execute on function public.storage_path_matches_actor(text, uuid, uuid) from public;
+revoke execute on function public.storage_path_tenant_id(text) from public;
+revoke execute on function public.storage_object_exists(text, text, uuid, uuid) from public;
 revoke execute on function public.log_audit_event(uuid, text, text, uuid, jsonb, uuid) from public;
+revoke execute on function public.update_my_profile(text, text) from public;
+revoke execute on function public.provision_tenant_admin(text, text, uuid, text, text, text) from public;
 revoke execute on function public.haversine_distance_meters(numeric, numeric, numeric, numeric) from public;
-revoke execute on function public.start_journey(uuid, numeric, numeric, numeric, timestamptz) from public;
-revoke execute on function public.finish_journey(uuid, numeric, numeric, numeric, timestamptz) from public;
+revoke execute on function public.start_journey(uuid, numeric, numeric, numeric) from public;
+revoke execute on function public.finish_journey(uuid, numeric, numeric, numeric) from public;
 revoke execute on function public.record_visit(uuid, text, numeric, numeric, numeric, text, public.visit_outcome, uuid, timestamptz) from public;
 revoke execute on function public.review_visit(uuid, public.visit_review_status, text) from public;
 revoke execute on function public.convert_visit_to_lead(uuid, text, text, text, text) from public;
-revoke execute on function public.reserve_voucher(uuid, uuid, uuid) from public;
+revoke execute on function public.reserve_voucher(uuid, uuid) from public;
+revoke execute on function public.create_voucher_delivery(uuid, uuid, text) from public;
 revoke execute on function public.claim_voucher_ocr(uuid) from public;
-revoke execute on function public.register_voucher_ocr_result(uuid, public.voucher_ocr_status, text, numeric, text, text, text, jsonb, timestamptz) from public;
+revoke execute on function public.register_voucher_ocr_result(uuid, public.voucher_ocr_status, text, numeric, text, text, text, jsonb) from public;
 revoke execute on function public.finalize_voucher_delivery(uuid) from public;
 
 grant execute on function public.current_user_is_tenant_member(uuid) to authenticated;
 grant execute on function public.current_user_has_tenant_role(uuid, public.membership_role[]) to authenticated;
-grant execute on function public.start_journey(uuid, numeric, numeric, numeric, timestamptz) to authenticated;
-grant execute on function public.finish_journey(uuid, numeric, numeric, numeric, timestamptz) to authenticated;
+grant execute on function public.storage_path_matches_actor(text, uuid, uuid) to authenticated;
+grant execute on function public.storage_path_tenant_id(text) to authenticated;
+grant execute on function public.update_my_profile(text, text) to authenticated;
+grant execute on function public.start_journey(uuid, numeric, numeric, numeric) to authenticated;
+grant execute on function public.finish_journey(uuid, numeric, numeric, numeric) to authenticated;
 grant execute on function public.record_visit(uuid, text, numeric, numeric, numeric, text, public.visit_outcome, uuid, timestamptz) to authenticated;
 grant execute on function public.review_visit(uuid, public.visit_review_status, text) to authenticated;
 grant execute on function public.convert_visit_to_lead(uuid, text, text, text, text) to authenticated;
-grant execute on function public.reserve_voucher(uuid, uuid, uuid) to authenticated;
+grant execute on function public.reserve_voucher(uuid, uuid) to authenticated;
+grant execute on function public.create_voucher_delivery(uuid, uuid, text) to authenticated;
 grant execute on function public.finalize_voucher_delivery(uuid) to authenticated;
 
+grant execute on function public.provision_tenant_admin(text, text, uuid, text, text, text) to service_role;
 grant execute on function public.claim_voucher_ocr(uuid) to service_role;
-grant execute on function public.register_voucher_ocr_result(uuid, public.voucher_ocr_status, text, numeric, text, text, text, jsonb, timestamptz) to service_role;
+grant execute on function public.register_voucher_ocr_result(uuid, public.voucher_ocr_status, text, numeric, text, text, text, jsonb) to service_role;
