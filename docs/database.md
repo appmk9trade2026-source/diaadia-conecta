@@ -38,9 +38,24 @@ Nao foram criadas `voucher_ocr_jobs` ou `voucher_ocr_results`; o contrato defini
 - `review_visit(...)`: permite revisao por `admin` ou `supervisor`.
 - `convert_visit_to_lead(...)`: cria lead atomicamente a partir de visita propria.
 - `reserve_voucher(...)`: reserva voucher disponivel para lead validado no tenant.
+- `create_voucher_delivery(...)`: cria entrega pendente com evidencia real em storage e dispara o webhook de OCR por INSERT.
 - `claim_voucher_ocr(delivery_id uuid)`: faz claim atomico `pendente -> processando`.
 - `register_voucher_ocr_result(...)`: registra resultado OCR sem finalizar voucher ou lead.
 - `finalize_voucher_delivery(...)`: finaliza entrega somente com OCR `validado`, atualizando delivery, voucher, lead e auditoria na mesma transacao.
+- `update_my_profile(...)`: permite ao usuario alterar somente dados pessoais autorizados.
+- `provision_tenant_admin(...)`: provisionamento backend-only do primeiro tenant/admin a partir de `auth.users.id` existente.
+
+## Horarios e Antifraude
+
+Horarios operacionais oficiais usam `clock_timestamp()` server-side. Timestamps enviados pelo dispositivo podem ser armazenados em `device_captured_at`, mas nao entram em duracao de jornada, intervalo entre visitas, antifraude ou KPIs.
+
+`record_visit(...)` confirma evidencia real em `storage.objects` quando `visit_settings.photo_required = true`.
+
+## Vouchers
+
+`reserved_by_user_id` significa o usuario que executou a reserva. Ele nao representa necessariamente o consultor responsavel.
+
+O consultor responsavel pelo voucher e derivado do `lead.consultant_id` e de `voucher_deliveries.consultant_id`.
 
 ## Views
 
@@ -63,10 +78,10 @@ Buckets privados preparados pela migration:
 - `visit-photos`
 - `voucher-photos`
 
-As policies assumem paths iniciados por `tenant_id`, por exemplo:
+As policies assumem paths estritos:
 
 ```text
-<tenant_id>/<user_id>/<arquivo>
+<tenant_uuid>/<user_uuid>/<uuid-do-arquivo>.<jpg|jpeg|png|webp>
 ```
 
 Imagens nao devem ser salvas em base64 no banco.

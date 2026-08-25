@@ -37,6 +37,16 @@ O frontend nunca deve:
 
 OCR validado nao finaliza voucher automaticamente. A finalizacao passa por `finalize_voucher_delivery(...)`, que valida usuario, tenant, delivery, voucher, lead, reserva e status OCR antes de atualizar qualquer estado.
 
+## Delivery de Voucher
+
+Entregas sao criadas somente por `create_voucher_delivery(...)`. A RPC deriva `tenant_id` e `consultant_id` pelo lead, valida voucher reservado para o mesmo lead/tenant e confirma evidencia real em `storage.objects`.
+
+Nao existe policy de INSERT direto em `voucher_deliveries` para `authenticated`.
+
+## Bootstrap Administrativo
+
+O primeiro admin deve ser criado por `provision_tenant_admin(...)`, RPC concedida somente a `service_role`. Ela exige `auth.users.id` existente e cria/ativa tenant, profile e membership admin sem email/senha hardcoded.
+
 ## Storage
 
 Buckets sensiveis sao privados:
@@ -45,6 +55,14 @@ Buckets sensiveis sao privados:
 - `voucher-photos`
 
 Consultores podem enviar evidencias para tenants nos quais possuem membership de consultant. Supervisores/admins podem ler evidencias do tenant. Exposicao ao usuario deve ocorrer por signed URL temporaria gerada em camada backend adequada.
+
+Formato oficial de path:
+
+```text
+<tenant_uuid>/<user_uuid>/<uuid-do-arquivo>.<jpg|jpeg|png|webp>
+```
+
+As policies validam o formato antes de extrair tenant, exigem usuario correto no path e bloqueiam `../`, `//` e leitura cross-tenant.
 
 ## Auditoria
 
