@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from 'react';
+import { useState } from 'react';
 import { LogOut } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,11 +11,23 @@ export function AppShell({ children }: PropsWithChildren) {
   const { appUserContext } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [logoutState, setLogoutState] = useState<'idle' | 'submitting' | 'error'>('idle');
 
   async function handleSignOut() {
-    await signOut();
-    queryClient.clear();
-    await navigate({ to: '/login' });
+    if (logoutState === 'submitting') {
+      return;
+    }
+
+    setLogoutState('submitting');
+
+    try {
+      await signOut();
+      queryClient.clear();
+      await navigate({ to: '/login' });
+      setLogoutState('idle');
+    } catch {
+      setLogoutState('error');
+    }
   }
 
   return (
@@ -37,9 +50,17 @@ export function AppShell({ children }: PropsWithChildren) {
             <strong>{getRoleLabel(appUserContext.membership.role)}</strong>
           </div>
         ) : null}
-        <button className="sign-out-button" type="button" onClick={handleSignOut}>
+        {logoutState === 'error' ? (
+          <p className="logout-error">Nao foi possivel sair agora. Tente novamente.</p>
+        ) : null}
+        <button
+          className="sign-out-button"
+          disabled={logoutState === 'submitting'}
+          type="button"
+          onClick={handleSignOut}
+        >
           <LogOut size={18} aria-hidden="true" />
-          <span>Sair</span>
+          <span>{logoutState === 'submitting' ? 'Saindo...' : 'Sair'}</span>
         </button>
       </aside>
       <main className="main-content">{children}</main>

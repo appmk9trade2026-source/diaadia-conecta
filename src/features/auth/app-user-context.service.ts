@@ -51,32 +51,32 @@ export function resolveAppUserContext(
     throw new FriendlyAuthError('membership_missing', 'Acesso nao configurado para este usuario.');
   }
 
-  const membershipWithInactiveTenant = memberships.find((membership) => {
-    const tenant = normalizeTenant(membership.tenants);
-    return membership.active && tenant && !tenant.active;
-  });
-
-  if (membershipWithInactiveTenant) {
-    throw new FriendlyAuthError('tenant_inactive', 'Empresa inativa. Fale com o administrador.');
-  }
-
-  const activeMemberships = memberships.filter((membership) => {
+  const usableMemberships = memberships.filter((membership) => {
     const tenant = normalizeTenant(membership.tenants);
     return membership.active && tenant?.active;
   });
 
-  if (activeMemberships.length === 0) {
-    throw new FriendlyAuthError('membership_inactive', 'Acesso inativo. Fale com o administrador.');
-  }
-
-  if (activeMemberships.length > 1) {
+  if (usableMemberships.length > 1) {
     throw new FriendlyAuthError(
       'multiple_memberships',
       'Mais de uma empresa ativa encontrada. A selecao de empresa sera habilitada em breve.',
     );
   }
 
-  const membership = activeMemberships[0];
+  if (usableMemberships.length === 0) {
+    const hasActiveMembershipWithInactiveTenant = memberships.some((membership) => {
+      const tenant = normalizeTenant(membership.tenants);
+      return membership.active && Boolean(tenant) && !tenant?.active;
+    });
+
+    if (hasActiveMembershipWithInactiveTenant) {
+      throw new FriendlyAuthError('tenant_inactive', 'Empresa inativa. Fale com o administrador.');
+    }
+
+    throw new FriendlyAuthError('membership_inactive', 'Acesso inativo. Fale com o administrador.');
+  }
+
+  const membership = usableMemberships[0];
   const tenant = normalizeTenant(membership.tenants);
 
   if (!tenant) {

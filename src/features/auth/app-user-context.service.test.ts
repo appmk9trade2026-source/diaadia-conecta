@@ -95,4 +95,33 @@ describe('resolveAppUserContext', () => {
       'multiple_memberships',
     );
   });
+
+  it('uses the valid membership when another active membership has an inactive tenant', () => {
+    const context = resolveAppUserContext(user, activeProfile, [
+      {
+        ...activeMembership,
+        id: '44444444-4444-4444-8444-444444444444',
+        tenants: { ...activeTenant, id: '55555555-5555-4555-8555-555555555555', active: false }
+      },
+      activeMembership
+    ]);
+
+    expect(context.tenant.slug).toBe('tenant-teste');
+    expect(context.membership.id).toBe(activeMembership.id);
+  });
+
+  it('rejects two valid memberships as multiple memberships', () => {
+    expectAuthError(
+      () =>
+        resolveAppUserContext(user, activeProfile, [
+          activeMembership,
+          {
+            ...activeMembership,
+            id: '66666666-6666-4666-8666-666666666666',
+            tenants: { ...activeTenant, id: '77777777-7777-4777-8777-777777777777', slug: 'terceiro' }
+          }
+        ]),
+      'multiple_memberships',
+    );
+  });
 });

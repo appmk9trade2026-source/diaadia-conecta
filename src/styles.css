@@ -193,6 +193,24 @@ input {
   background: #f6f3ed;
 }
 
+.sign-out-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.logout-error {
+  margin: auto 0 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #ffe9e3;
+  background: rgb(140 47 32 / 32%);
+  font-size: 0.9rem;
+}
+
+.logout-error + .sign-out-button {
+  margin-top: 0;
+}
+
 .main-content {
   padding: 44px;
 }
