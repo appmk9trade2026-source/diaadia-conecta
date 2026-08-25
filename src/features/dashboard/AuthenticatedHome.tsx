@@ -8,12 +8,19 @@ export function AuthenticatedHome() {
     return null;
   }
 
+  const firstName = appUserContext.profile.name.split(' ')[0] ?? appUserContext.profile.name;
+
   return (
     <section className="authenticated-home" aria-label="Area autenticada">
       <header>
         <p>DIA A DIA CONECTA</p>
-        <h1>Area autenticada</h1>
+        <h1>Ola, {firstName}</h1>
+        <span>Bem-vindo ao DIA A DIA CONECTA.</span>
       </header>
+
+      <div className="status-card">
+        <span className="status-badge">Acesso ativo</span>
+      </div>
 
       <dl className="identity-list">
         <div>

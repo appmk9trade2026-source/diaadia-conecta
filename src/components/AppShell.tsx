@@ -34,7 +34,7 @@ export function AppShell({ children }: PropsWithChildren) {
     <div className="app-shell">
       <aside className="sidebar" aria-label="Navegacao principal">
         <div className="brand">
-          <span className="brand-mark">DC</span>
+          <span className="brand-mark">DD</span>
           <div>
             <strong>DIA A DIA</strong>
             <span>CONECTA</span>
@@ -42,12 +42,18 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
         {appUserContext ? (
           <div className="session-summary">
-            <span>Empresa</span>
-            <strong>{appUserContext.tenant.name}</strong>
-            <span>Usuario</span>
-            <strong>{appUserContext.profile.name}</strong>
-            <span>Perfil</span>
-            <strong>{getRoleLabel(appUserContext.membership.role)}</strong>
+            <div>
+              <span>Empresa</span>
+              <strong>{appUserContext.tenant.name}</strong>
+            </div>
+            <div>
+              <span>Usuario</span>
+              <strong>{appUserContext.profile.name}</strong>
+            </div>
+            <div>
+              <span>Perfil</span>
+              <strong>{getRoleLabel(appUserContext.membership.role)}</strong>
+            </div>
           </div>
         ) : null}
         {logoutState === 'error' ? (

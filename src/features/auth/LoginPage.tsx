@@ -52,12 +52,21 @@ export function LoginPage() {
 
   return (
     <main className="login-page">
+      <section className="login-hero" aria-label="Identidade DIA A DIA CONECTA">
+        <div className="login-hero-mark">DIA A DIA</div>
+        <div>
+          <p>MK9 Trade Marketing</p>
+          <h1>DIA A DIA CONECTA</h1>
+          <span>Operacao de campo conectada, segura e pronta para homologacao.</span>
+        </div>
+      </section>
+
       <section className="login-panel" aria-label="Login">
         <div className="login-brand">
-          <span className="brand-mark">DC</span>
+          <span className="brand-mark">DD</span>
           <div>
-            <strong>DIA A DIA CONECTA</strong>
-            <span>Acesso operacional</span>
+            <strong>DIA A DIA</strong>
+            <span>CONECTA</span>
           </div>
         </div>
 
