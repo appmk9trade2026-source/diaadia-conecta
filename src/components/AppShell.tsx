@@ -1,14 +1,22 @@
 import type { PropsWithChildren } from 'react';
-import { ClipboardCheck, MapPinned, ShieldCheck, TicketCheck } from 'lucide-react';
-
-const funnelItems = [
-  { label: 'Jornada', icon: MapPinned },
-  { label: 'Visitas', icon: ClipboardCheck },
-  { label: 'Leads', icon: ShieldCheck },
-  { label: 'Vouchers', icon: TicketCheck }
-];
+import { LogOut } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../features/auth/AuthProvider';
+import { signOut } from '../features/auth/auth.service';
+import { getRoleLabel } from '../features/auth/roles';
 
 export function AppShell({ children }: PropsWithChildren) {
+  const { appUserContext } = useAuth();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  async function handleSignOut() {
+    await signOut();
+    queryClient.clear();
+    await navigate({ to: '/login' });
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Navegacao principal">
@@ -19,18 +27,20 @@ export function AppShell({ children }: PropsWithChildren) {
             <span>CONECTA</span>
           </div>
         </div>
-        <nav className="funnel-nav" aria-label="Funil operacional">
-          {funnelItems.map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <a href="/" key={item.label} aria-label={item.label}>
-                <Icon size={18} aria-hidden="true" />
-                <span>{item.label}</span>
-              </a>
-            );
-          })}
-        </nav>
+        {appUserContext ? (
+          <div className="session-summary">
+            <span>Empresa</span>
+            <strong>{appUserContext.tenant.name}</strong>
+            <span>Usuario</span>
+            <strong>{appUserContext.profile.name}</strong>
+            <span>Perfil</span>
+            <strong>{getRoleLabel(appUserContext.membership.role)}</strong>
+          </div>
+        ) : null}
+        <button className="sign-out-button" type="button" onClick={handleSignOut}>
+          <LogOut size={18} aria-hidden="true" />
+          <span>Sair</span>
+        </button>
       </aside>
       <main className="main-content">{children}</main>
     </div>
