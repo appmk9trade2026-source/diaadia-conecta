@@ -1,4 +1,4 @@
-import { MapPin, SquareCheckBig, Timer, WifiOff } from 'lucide-react';
+import { CheckCircle2, MapPin, Navigation, SquareCheckBig, Timer, WifiOff } from 'lucide-react';
 import type { Journey } from './journey.types';
 import { useJourney } from './useJourney';
 
@@ -29,14 +29,26 @@ function formatDate(value: string) {
 
 function getActionLabel(actionState: string, fallback: string) {
   if (actionState === 'locating') {
-    return 'Obtendo GPS...';
+    return 'Obtendo sua localização...';
   }
 
   if (actionState === 'submitting') {
-    return 'Enviando...';
+    return fallback === 'Iniciar jornada' ? 'Iniciando jornada...' : 'Encerrando jornada...';
   }
 
   return fallback;
+}
+
+function getActionHint(actionState: string) {
+  if (actionState === 'locating') {
+    return 'Obtendo sua localização...';
+  }
+
+  if (actionState === 'submitting') {
+    return 'Enviando para confirmação segura.';
+  }
+
+  return null;
 }
 
 export function JourneyCard({ tenantId, userId, role }: JourneyCardProps) {
@@ -56,7 +68,7 @@ export function JourneyCard({ tenantId, userId, role }: JourneyCardProps) {
           </div>
         </div>
         <p className="journey-card__muted">
-          Check-in e check-out ficam disponiveis para consultores de campo.
+          Check-in e check-out ficam disponíveis para consultores de campo.
         </p>
       </section>
     );
@@ -87,7 +99,7 @@ export function JourneyCard({ tenantId, userId, role }: JourneyCardProps) {
           </span>
           <div>
             <p>Minha jornada</p>
-            <h2 id="journey-title">Nao foi possivel carregar</h2>
+            <h2 id="journey-title">Não foi possível carregar</h2>
           </div>
         </div>
         <p className="journey-error" role="alert">
@@ -128,35 +140,60 @@ export function JourneyCardView({
 }: JourneyCardViewProps) {
   const finishedJourney = journey?.status === 'finalizada' ? journey : null;
   const activeJourney = journey?.status === 'aberta' ? journey : null;
+  const actionHint = getActionHint(actionState);
 
   return (
     <section className="journey-card" aria-labelledby="journey-title">
       <div className="journey-card__header">
-        <span className="journey-card__icon" aria-hidden="true">
+        <span
+          className={`journey-card__icon${activeJourney ? ' journey-card__icon--active' : ''}`}
+          aria-hidden="true"
+        >
           {activeJourney ? <MapPin size={20} /> : <Timer size={20} />}
         </span>
         <div>
           <p>Minha jornada</p>
           <h2 id="journey-title">
-            {activeJourney ? 'Jornada em andamento' : 'Jornada do dia'}
+            {activeJourney
+              ? 'Jornada em andamento'
+              : finishedJourney
+                ? 'Jornada encerrada'
+                : 'Pronto para começar?'}
           </h2>
         </div>
       </div>
 
       {activeJourney ? (
         <div className="journey-card__body">
-          <div className="journey-meta">
-            <span>Iniciada as {formatTime(activeJourney.check_in_at)}</span>
-            <strong>Data {formatDate(activeJourney.check_in_at)}</strong>
+          <div className="journey-status journey-status--active" aria-live="polite">
+            <CheckCircle2 size={18} />
+            <span>Jornada em andamento</span>
           </div>
+
+          <div className="journey-facts">
+            <div>
+              <span>Início</span>
+              <strong>{formatTime(activeJourney.check_in_at)}</strong>
+            </div>
+            <div>
+              <span>Data</span>
+              <strong>{formatDate(activeJourney.check_in_at)}</strong>
+            </div>
+            <div>
+              <span>Localização</span>
+              <strong>{activeJourney.check_in_accuracy_meters ? 'Registrada' : 'Confirmada'}</strong>
+            </div>
+          </div>
+
           {activeJourney.check_in_accuracy_meters ? (
             <span className="journey-location">
               <SquareCheckBig size={18} />
-              Localizacao registrada
+              Localização registrada
             </span>
           ) : null}
+
           <button
-            className="danger-button"
+            className="journey-secondary-danger-button"
             type="button"
             disabled={busy}
             onClick={onFinish}
@@ -167,20 +204,31 @@ export function JourneyCardView({
       ) : (
         <div className="journey-card__body">
           {finishedJourney ? (
-            <div className="journey-meta">
-              <span>Jornada encerrada</span>
-              <strong>
-                Inicio: {formatTime(finishedJourney.check_in_at)}
-                {finishedJourney.check_out_at
-                  ? ` | Fim: ${formatTime(finishedJourney.check_out_at)}`
-                  : ''}
-              </strong>
+            <div className="journey-facts journey-facts--finished">
+              <div>
+                <span>Início</span>
+                <strong>{formatTime(finishedJourney.check_in_at)}</strong>
+              </div>
+              <div>
+                <span>Fim</span>
+                <strong>
+                  {finishedJourney.check_out_at ? formatTime(finishedJourney.check_out_at) : '-'}
+                </strong>
+              </div>
             </div>
           ) : (
             <p className="journey-card__muted">
-              Registre sua localizacao para iniciar o expediente de campo.
+              Registre sua localização para iniciar o expediente de campo.
             </p>
           )}
+
+          {actionHint ? (
+            <div className="journey-status" aria-live="polite">
+              <Navigation size={18} />
+              <span>{actionHint}</span>
+            </div>
+          ) : null}
+
           <button
             className="primary-button journey-card__button"
             type="button"

@@ -33,8 +33,9 @@ describe('JourneyCardView', () => {
       />,
     );
 
+    expect(html).toContain('Pronto para começar?');
     expect(html).toContain('Iniciar jornada');
-    expect(html).toContain('Registre sua localizacao');
+    expect(html).toContain('Registre sua localização');
   });
 
   it('renders the active journey state', () => {
@@ -51,7 +52,7 @@ describe('JourneyCardView', () => {
 
     expect(html).toContain('Jornada em andamento');
     expect(html).toContain('Encerrar jornada');
-    expect(html).toContain('Localizacao registrada');
+    expect(html).toContain('Localização registrada');
   });
 
   it('renders a finished journey returned by the backend', () => {
@@ -71,8 +72,8 @@ describe('JourneyCardView', () => {
     );
 
     expect(html).toContain('Jornada encerrada');
-    expect(html).toContain('Inicio:');
-    expect(html).toContain('Fim:');
+    expect(html).toContain('Início');
+    expect(html).toContain('Fim');
   });
 
   it('disables the action button while submitting', () => {
@@ -88,6 +89,6 @@ describe('JourneyCardView', () => {
     );
 
     expect(html).toContain('disabled=""');
-    expect(html).toContain('Enviando...');
+    expect(html).toContain('Iniciando jornada...');
   });
 });
