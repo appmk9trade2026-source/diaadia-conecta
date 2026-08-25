@@ -274,9 +274,6 @@ create trigger set_profiles_updated_at before update on public.profiles for each
 create trigger set_tenant_memberships_updated_at before update on public.tenant_memberships for each row execute function public.set_updated_at();
 create trigger set_journeys_updated_at before update on public.journeys for each row execute function public.set_updated_at();
 create trigger set_field_routes_updated_at before update on public.field_routes for each row execute function public.set_updated_at();
-create trigger validate_field_route_consultant_membership
-  before insert or update of tenant_id, consultant_id on public.field_routes
-  for each row execute function public.assert_field_route_consultant_membership();
 create trigger set_visit_settings_updated_at before update on public.visit_settings for each row execute function public.set_updated_at();
 create trigger set_visits_updated_at before update on public.visits for each row execute function public.set_updated_at();
 create trigger set_leads_updated_at before update on public.leads for each row execute function public.set_updated_at();
@@ -464,6 +461,10 @@ begin
 end;
 $$;
 
+create trigger validate_field_route_consultant_membership
+  before insert or update of tenant_id, consultant_id on public.field_routes
+  for each row execute function public.assert_field_route_consultant_membership();
+
 create or replace function public.log_audit_event(
   p_tenant_id uuid,
   p_event_type text,
@@ -521,7 +522,10 @@ begin
   update public.profiles
   set
     name = coalesce(nullif(btrim(p_name), ''), name),
-    phone = nullif(btrim(coalesce(p_phone, '')), '')
+    phone = case
+      when p_phone is null then phone
+      else nullif(btrim(p_phone), '')
+    end
   where id = auth.uid()
     and active
   returning * into v_profile;
@@ -816,10 +820,9 @@ begin
   if v_settings.photo_required
      and not public.storage_object_exists('visit-photos', p_photo_path, p_tenant_id, auth.uid()) then
     raise exception 'Visit photo evidence is required and must exist in storage' using errcode = '23514';
-  elsif p_photo_path is not null
+  elsif nullif(btrim(coalesce(p_photo_path, '')), '') is not null
      and not public.storage_object_exists('visit-photos', p_photo_path, p_tenant_id, auth.uid()) then
-    v_score := v_score + 30;
-    v_signals := v_signals || jsonb_build_object('invalid_photo_path', true);
+    raise exception 'Visit photo path was provided but does not exist in storage for this tenant/consultant' using errcode = '23514';
   end if;
 
   v_score := least(v_score, 100);

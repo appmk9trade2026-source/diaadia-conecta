@@ -43,6 +43,8 @@ Entregas sao criadas somente por `create_voucher_delivery(...)`. A RPC deriva `t
 
 Nao existe policy de INSERT direto em `voucher_deliveries` para `authenticated`.
 
+Visitas seguem a mesma regra de evidencia: foto obrigatoria exige objeto real; foto opcional pode ser omitida; qualquer path informado deve existir e pertencer ao tenant/consultor antes de ser persistido.
+
 ## Bootstrap Administrativo
 
 O primeiro admin deve ser criado por `provision_tenant_admin(...)`, RPC concedida somente a `service_role`. Ela exige `auth.users.id` existente e cria/ativa tenant, profile e membership admin sem email/senha hardcoded.

@@ -42,14 +42,14 @@ Nao foram criadas `voucher_ocr_jobs` ou `voucher_ocr_results`; o contrato defini
 - `claim_voucher_ocr(delivery_id uuid)`: faz claim atomico `pendente -> processando`.
 - `register_voucher_ocr_result(...)`: registra resultado OCR sem finalizar voucher ou lead.
 - `finalize_voucher_delivery(...)`: finaliza entrega somente com OCR `validado`, atualizando delivery, voucher, lead e auditoria na mesma transacao.
-- `update_my_profile(...)`: permite ao usuario alterar somente dados pessoais autorizados.
+- `update_my_profile(...)`: permite ao usuario alterar somente dados pessoais autorizados. Omissao de `p_name` ou `p_phone` preserva o valor atual.
 - `provision_tenant_admin(...)`: provisionamento backend-only do primeiro tenant/admin a partir de `auth.users.id` existente.
 
 ## Horarios e Antifraude
 
 Horarios operacionais oficiais usam `clock_timestamp()` server-side. Timestamps enviados pelo dispositivo podem ser armazenados em `device_captured_at`, mas nao entram em duracao de jornada, intervalo entre visitas, antifraude ou KPIs.
 
-`record_visit(...)` confirma evidencia real em `storage.objects` quando `visit_settings.photo_required = true`.
+`record_visit(...)` confirma evidencia real em `storage.objects` quando `visit_settings.photo_required = true`. Se foto for opcional, o path pode ser omitido; se qualquer path for informado, o objeto deve existir e pertencer ao tenant/consultor, caso contrario a visita falha e o path falso nao e persistido.
 
 ## Vouchers
 
