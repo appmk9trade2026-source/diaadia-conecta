@@ -57,7 +57,7 @@ export function LoginPage() {
         <div>
           <p>MK9 Trade Marketing</p>
           <h1>DIA A DIA CONECTA</h1>
-          <span>Operacao de campo conectada, segura e pronta para homologacao.</span>
+          <span>Sua operação de campo, conectada em um só lugar.</span>
         </div>
       </section>
 
