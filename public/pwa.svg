@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DIA A DIA CONECTA">
+  <rect width="512" height="512" rx="96" fill="#165a5f"/>
+  <path d="M142 318c37 42 91 64 151 56 45-6 77-29 96-58" fill="none" stroke="#f6f3ed" stroke-width="38" stroke-linecap="round"/>
+  <path d="M155 205c27-39 73-64 125-64 44 0 84 19 112 50" fill="none" stroke="#f0b14a" stroke-width="38" stroke-linecap="round"/>
+  <circle cx="169" cy="323" r="25" fill="#f0b14a"/>
+  <circle cx="393" cy="194" r="25" fill="#f6f3ed"/>
+</svg>

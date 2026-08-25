@@ -1,0 +1,169 @@
+:root {
+  color: #1f2829;
+  background: #f6f3ed;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 28px;
+  color: #f6f3ed;
+  background: #165a5f;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 8px;
+  color: #165a5f;
+  background: #f0b14a;
+  font-weight: 800;
+}
+
+.brand strong,
+.brand span {
+  display: block;
+}
+
+.brand span {
+  color: #cfe7e5;
+  font-size: 0.78rem;
+}
+
+.funnel-nav {
+  display: grid;
+  gap: 8px;
+}
+
+.funnel-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #eaf6f4;
+}
+
+.funnel-nav a:hover {
+  background: rgb(255 255 255 / 12%);
+}
+
+.main-content {
+  padding: 44px;
+}
+
+.dashboard {
+  display: grid;
+  gap: 32px;
+  max-width: 1120px;
+}
+
+.dashboard-header {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-header p {
+  margin: 0;
+  color: #b15c33;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dashboard-header h1 {
+  margin: 0;
+  font-size: clamp(2.25rem, 6vw, 4.75rem);
+  line-height: 0.95;
+}
+
+.dashboard-header span {
+  max-width: 720px;
+  color: #5d696b;
+  font-size: 1.1rem;
+}
+
+.stage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+}
+
+.stage-card {
+  display: grid;
+  min-height: 190px;
+  align-content: start;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #d8d0c4;
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.stage-card span {
+  color: #b15c33;
+  font-weight: 800;
+}
+
+.stage-card h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.stage-card p {
+  margin: 0;
+  color: #5d696b;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    padding: 18px;
+  }
+
+  .funnel-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .main-content {
+    padding: 26px 18px;
+  }
+}
