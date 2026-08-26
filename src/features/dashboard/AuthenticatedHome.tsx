@@ -15,7 +15,7 @@ export function AuthenticatedHome() {
       <header>
         <p>DIA A DIA CONECTA</p>
         <h1>Ola, {firstName}</h1>
-        <span>Bem-vindo ao DIA A DIA CONECTA.</span>
+        <span>Teste Mestres do Lovable</span>
       </header>
 
       <div className="status-card">
