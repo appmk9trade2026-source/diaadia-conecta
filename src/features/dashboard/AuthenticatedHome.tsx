@@ -1,6 +1,7 @@
 import { useAuth } from '../auth/AuthProvider';
 import { getRoleLabel } from '../auth/roles';
 import { JourneyCard } from '../journey/JourneyCard';
+import { VisitsPanel } from '../visits/VisitsPanel';
 
 export function AuthenticatedHome() {
   const { appUserContext } = useAuth();
@@ -39,6 +40,12 @@ export function AuthenticatedHome() {
       </dl>
 
       <JourneyCard
+        role={appUserContext.membership.role}
+        tenantId={appUserContext.tenant.id}
+        userId={appUserContext.userId}
+      />
+
+      <VisitsPanel
         role={appUserContext.membership.role}
         tenantId={appUserContext.tenant.id}
         userId={appUserContext.userId}
